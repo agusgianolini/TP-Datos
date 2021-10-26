@@ -1,0 +1,114 @@
+---
+title: "Trabajo práctico Laboratorio de datos"
+output: html_notebook
+---
+
+```{r}
+require(tidyverse)
+require(geosphere)
+```
+
+
+```{r}
+archivo = "202109-informe-ministerio.csv"
+ds = read.csv(archivo, sep=';',encoding="UTF-8")
+
+aeropuertos_archivo = "sna_abril_2021_fixed_encoding.csv"
+aeropuertos_ds = read.csv(aeropuertos_archivo, sep=',', encoding="UTF-8")
+
+```
+
+
+```{r}
+ds = ds[]
+```
+
+```{r}
+aeropuertos_filtrado = aeropuertos_ds %>% 
+  select(cpr, ita, ana, nom_ciudad, x, y)
+
+ds = ds %>%
+  filter(Clasificación.Vuelo == "Dom") %>% 
+  left_join(aeropuertos_filtrado, by=c("Aeropuerto" = "ana"))
+
+ds = filter(ds, Origen...Destino != ds$Aeropuerto) 
+
+
+ds$Tiempo = paste(ds$Fecha, ds$Hora.UTC)
+ds$Tiempo = strptime(ds$Tiempo, format = "%d/%m/%Y %H:%M")
+ds[1:2] = NULL
+```
+
+
+
+```{r}
+"incompletas = ds[!complete.cases(ds), ]
+unique(incompletas$Aeropuerto)
+
+MOR %in% aeropuertos_ds$ito
+
+
+ds$VueloNum = 0"
+
+i=1
+n = 1
+
+aterrizajes = ds %>% 
+      rownames_to_column("index") %>%
+      filter( Tipo.de.Movimiento == "Aterrizaje" )
+
+for (i in 1:nrow(ds)) {
+  if (ds[i, "Tipo.de.Movimiento"] == "Despegue") {
+    
+    aeronave_actual= ds[i, "Aeronave"]
+    destino_actual = ds[i, "Origen...Destino"]
+    hora_limite_actual = ds[i, "Tiempo"] + (1*12*60*60)
+    
+    
+    posibles_aterrizajes = aterrizajes %>% 
+      filter( Aeronave == aeronave_actual ) %>% 
+      filter( Aeropuerto == destino_actual ) %>% 
+      filter( Tiempo < hora_limite_actual ) %>% 
+      filter( Tiempo > ds[i, "Tiempo"] ) 
+
+    if ( nrow(posibles_aterrizajes) != 0 ) {
+       ds[i, "VueloNum"] = n
+       ds[posibles_aterrizajes[1, "index"], "VueloNum"] = n
+       n = n+1
+    }  else {
+      ds[i, "VueloNum"] = NA
+  }
+ }
+}
+
+
+write.csv(ds, file = "casicasi.csv")
+  
+```
+
+```{r}
+archivo_vuelos = "vuelos.csv"
+ds_vuelos = read.csv(archivo_vuelos, sep=',',encoding="UTF-16")
+```
+
+```{r}
+ #order(ds_vuelos$VueloNum)
+ ds_ordenado = ds_vuelos[order(ds_vuelos$VueloNum),]
+
+ despegues = ds_ordenado %>% 
+   filter(Tipo.de.Movimiento == "Despegue") %>%
+   filter(VueloNum <= 43313) %>% 
+   select(x, y)
+ 
+ 
+ aterrizajes = ds_ordenado %>% 
+   filter(Tipo.de.Movimiento == "Aterrizaje") %>% 
+   filter(!is.na(VueloNum)) %>% 
+   select(x, y)
+ 
+ viajes = distHaversine(despegues, aterrizajes, r = 6378137)
+ 
+ 
+ 
+```
+
