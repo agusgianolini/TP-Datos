@@ -97,7 +97,7 @@ ds_vuelos = read.csv(archivo_vuelos, sep=',',encoding="UTF-16")
 
  despegues = ds_ordenado %>% 
    filter(Tipo.de.Movimiento == "Despegue") %>%
-   filter(VueloNum <= 43313) %>% 
+   filter(VueloNum <= 43287) %>% 
    select(x, y)
  
  
