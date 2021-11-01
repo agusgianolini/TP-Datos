@@ -1,0 +1,103 @@
+---
+title: "TP_GC"
+output: html_notebook
+---
+
+En este caso, analizaremos las influencias de algunos de los factores externos en la cantidad de pasajeros en vuelos domésticos por día.
+
+Comencemos analizando la situación económica local con respecto al tipo cambiario para ver si podemos inferir que un aumento en el precio del dólar genera una disminución en la capacidad adquisitiva y, por lo tanto, una baja en la cantidad de pasajeros.
+
+```{r}
+
+#Acá queda un ds con fecha, cantidad de pasajeros, precio del dólar
+
+require(tidyverse)
+require(geosphere)
+
+archivo_BCRA = "datos-tipo-cambio-usd-futuro-dolar-frecuencia-diaria.csv"
+ds_BCRA = read.csv(archivo_BCRA, sep=',',encoding="UTF-8")
+
+ds_BCRA = ds_BCRA %>%
+  filter(indice_tiempo > 2021)
+
+ds_BCRA = ds_BCRA %>%
+  select(indice_tiempo, tipo_cambio_implicito_en_adrs)
+
+archivo_dollar = "202109-informe-ministerio.csv"
+ds_dollar_BCRA = read.csv(archivo_dollar, sep=';',encoding="UTF-8")
+ds_dollar_BCRA = ds_dollar_BCRA %>% 
+  filter(Tipo.de.Movimiento=="Despegue") %>% 
+  select(Fecha, Pasajeros) %>% 
+  group_by(Fecha) %>% 
+  summarise(sum(Pasajeros))
+
+ds_dollar_BCRA$Fecha <- as.Date(ds_dollar_BCRA$Fecha, format="%d/%m/%Y")
+ds_dollar_BCRA<-ds_dollar_BCRA[order(ds_dollar_BCRA$Fecha),]
+
+ds_BCRA$Pasajeros=ds_dollar_BCRA$"sum(Pasajeros)"
+colnames(ds_BCRA) <- c("Fecha", "Valor_Dolar", "Pasajeros")
+
+```
+
+```{r}
+
+#Acá queda un ds con cantidad de pasajeros por fecha en función de parámetros de covid
+library(ggplot2)
+
+ggplot(data=ds_BCRA) + geom_point(mapping = aes(x=Valor_Dolar, y=Pasajeros))
+```
+
+Como podemos observar, parece no existir una relación contundente entre los dos valores analizados. Es más, si nos basáramos únicamente en estos datos, podríamos decir que a mayor valor de dólar, mayor cantidad de pasajeros. Ahora, vale la pena resaltar que la suba del precio de la moneda extranjera se da de forma lineal con el tiempo. 
+
+```{r}
+
+#Acá queda un ds con cantidad de pasajeros por fecha en función de parámetros de covid
+library(ggplot2)
+
+ggplot(data=ds_BCRA) + geom_point(mapping = aes(x=Fecha, y=Pasajeros))
+```
+Como muestra la figura, parece ser que a principios y finales de año hubo una fuerte suba en el turismo local. Podríamos pensar que, como suele suceder, a principios de año el turismo se vió fomentado por el fin de año lectivo. Para analizar lo ocurrido hacia septiembre, hagamos otro análisis.
+
+Consideramos, entonces, que deben tener protagonismo otros factores más allá de los económicos. Conocemos la situación actual y sabemos que para el momento que estamos viviendo, la situación sanitaria es de gran importancia. Tanto en términos de restricciones gubernamentales como de prevención social.
+A continuación, analizaremos la relación entre el progreso de la pandemia y la cantidad de pasajeros.
+
+
+
+```{r}
+
+#Acá queda un ds con cantidad de pasajeros por fecha en función de parámetros de covid
+
+#install.packages("readxl")
+
+require(tidyverse)
+require(geosphere)
+library("readxl")
+
+#datos extraídos de http://jorgealiaga.com.ar/?page_id=2185#
+ds_COVID=read_excel("Datos COVID-19 Argentina - (Fuente MinSalud)_2.xlsx")
+
+archivo_dollar = "202109-informe-ministerio.csv"
+ds_dollar_COVID = read.csv(archivo_dollar, sep=';',encoding="UTF-8") 
+ds_dollar_COVID = ds_dollar_COVID %>% 
+  filter(Tipo.de.Movimiento=="Despegue") %>% 
+  select(Fecha, Pasajeros) %>% 
+  group_by(Fecha) %>% 
+  summarise(sum(Pasajeros))
+
+ds_dollar_COVID$Fecha <- as.Date(ds_dollar_COVID$Fecha, format="%d/%m/%Y")
+ds_dollar_COVID<-ds_dollar_COVID[order(ds_dollar_COVID$Fecha),]
+
+ds_COVID$Pasajeros=ds_dollar_COVID$"sum(Pasajeros)"
+
+```
+
+```{r}
+library(ggplot2)
+
+ggplot(data=ds_COVID) + geom_point(mapping = aes(x=Terapia, y=Pasajeros))
+ggplot(data=ds_COVID) + geom_point(mapping = aes(x=Casos_positivos, y=Pasajeros))
+
+```
+
+Los dos gráficos nos arrojan el mismo resultado: ante una baja en las camas ocupadas en terapia intensiva y una baja en los casos positivos, la cantidad de pasajeros aumenta.
+
