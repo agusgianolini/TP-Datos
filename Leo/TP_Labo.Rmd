@@ -1,0 +1,256 @@
+---
+title: "Trabajo práctico Laboratorio de datos"
+output: html_notebook
+---
+Primero se cargan los paquetes requeridos en el trabajo.
+```{r}
+require(tidyverse)
+require(geosphere)
+library(lubridate)
+```
+
+Se cargan los archivos necesarios. Estos serán dos: un dataset con los despegues y aterrizajes registrados hasta el momento en el 2021 y otro con información asociada a los aeropuertos de la Argentina.
+```{r}
+archivo = "202109-informe-ministerio.csv"
+ds = read.csv(archivo, sep=';',encoding="UTF-8")
+
+aeropuertos_archivo = "sna_abril_2021_fixed_encoding.csv"
+aeropuertos_ds = read.csv(aeropuertos_archivo, sep=',', encoding="UTF-8")
+
+```
+
+Se ordena el dataset.
+```{r}
+#Selección de las columnas que interesan
+aeropuertos_ds = aeropuertos_ds %>% 
+  select(cpr, ita, ana, nom_ciudad, x, y)
+
+#Unión de ambos datasets y filtrado para que sólo se estudien los vuelos nacionales.
+ds = ds %>%
+  filter(Clasificación.Vuelo == "Dom") %>% 
+  left_join(aeropuertos_ds, by=c("Aeropuerto" = "ana"))
+
+#Se eliminan los vuelos que parten y llegan al mismo aeropuerto
+ds = filter(ds, Origen...Destino != ds$Aeropuerto ) 
+
+#Se convierte la columna con la fecha en str a formato date.
+ds$Tiempo = paste(ds$Fecha, ds$Hora.UTC)
+ds$Tiempo = strptime(ds$Tiempo, format = "%d/%m/%Y %H:%M")
+ds[1:2] = NULL #Se eliminan las viejas columnas con la fecha
+```
+
+A continuación se detalla el código utilizado para detectar un problema encontrado en el DataFrame. Hay dos aeropuertos no descritos : MOR y GOY. 
+
+```{r}
+filas_incompletas = ds[!complete.cases(ds$x), ]
+print( unique(filas_incompletas$Aeropuerto) )
+
+vuelos_GOY = ds %>% 
+  filter( Origen...Destino == "GOY")
+print(vuelos_GOY)
+
+```
+Ante este panorama, se decide agregar la información del aeropuerto de Moron MOR y se vuelve a ejecutar el código previo. En el caso de GOY, como las filas que lo involucran son pocas y son todas asociadas a vuelos privados, se decide eliminarlo.
+
+```{r}
+moron = data.frame("Buenos Aires", NA, "MOR", "Morón", "-58.643611", "-34.679167")
+names(moron) = c("cpr", "ita", "ana", "nom_ciudad", "x", "y")
+aeropuertos_ds = rbind(aeropuertos_ds, moron)
+
+#Se repite el código ya utilizado
+archivo = "202109-informe-ministerio.csv"
+ds = read.csv(archivo, sep=';',encoding="UTF-8")
+#Unión de ambos datasets y filtrado para que sólo se estudien los vuelos nacionales.
+ds = ds %>%
+  filter(Clasificación.Vuelo == "Dom") %>% 
+  left_join(aeropuertos_ds, by=c("Aeropuerto" = "ana"))
+ds = filter(ds, Origen...Destino != ds$Aeropuerto ) 
+#Se convierte la columna con la fecha en str a formato date.
+ds$Tiempo = paste(ds$Fecha, ds$Hora.UTC)
+ds$Tiempo = strptime(ds$Tiempo, format = "%d/%m/%Y %H:%M")
+ds[1:2] = NULL #Se eliminan las viejas columnas con la fecha
+
+
+#Se eliminan las filas con el aeropuerto GOY
+ds = ds %>% 
+  filter( Aeropuerto != "GOY" ) %>% 
+  filter( Origen...Destino != "GOY" )
+
+```
+
+A continuación se debe asociar a cada despegue su aterrizaje correspondiente. Para ello se ejecuta una código que, para cada despegue, busca los posibles aterrizajes asociados. Para ello observa los aterrizajes que involucran a los mismos aeropuertos, a la misma aeronave y que se hayan dado a menos de 12 horas del despegue. Como su ejecución tarda alrededor de 25 minutos, se guarda el resultado como un nuevo archivo csv llamado "vuelos.csv".
+
+```{r}
+
+ds$VueloNum = NA
+n = 1
+
+aterrizajes = ds %>% 
+      rownames_to_column("index") %>%
+      filter( Tipo.de.Movimiento == "Aterrizaje" )
+
+for (i in 1:nrow(ds)) {
+  
+  if (ds[i, "Tipo.de.Movimiento"] == "Despegue") {
+    aeronave_actual= ds[i, "Aeronave"]
+    origen_actual = ds[i, "Aeropuerto"]
+    destino_actual = ds[i, "Origen...Destino"]
+    hora_limite_actual = ds[i, "Tiempo"] + (1*12*60*60) #Se marca como hora límite de llegada 12hs después del despegue.
+
+    
+    posibles_aterrizajes = aterrizajes %>% 
+      filter( Aeronave == aeronave_actual ) %>% 
+      filter( Origen...Destino == origen_actual) %>% 
+      filter( Aeropuerto == destino_actual ) %>%  
+      filter( Tiempo < hora_limite_actual ) %>% 
+      filter( Tiempo > ds[i, "Tiempo"] ) %>% 
+      filter( is.na(VueloNum) )
+
+    
+    if ( nrow(posibles_aterrizajes) != 0 ) {
+       indice_aterrizaje = posibles_aterrizajes[1, "index"]
+       ds[i, "VueloNum"] = n
+       ds[indice_aterrizaje, "VueloNum"] = n
+       aterrizajes[aterrizajes$index == indice_aterrizaje, "VueloNum"] = n
+       n = n+1
+    }
+    
+  }
+}
+
+write.csv(ds, file = "vuelos.csv")
+```
+
+```{r}
+archivo_vuelos = "vuelos.csv"
+ds_vuelos = read.csv(archivo_vuelos, sep=',',encoding="UTF-16")
+
+colnames(ds_vuelos) = c("Indice", "Tipo.de.vuelo", "Clasificacion", "Tipo.de.movimiento", "Aeropuerto", "Origen.Destino", "Aerolinea", "Aeronave", "Pasajeros", "Calidad.dato", "Provincia", "ITA", "Ciudad", "x", "y", "Tiempo", "VueloNum")
+
+```
+
+Para nuevos arreglos se creará el dataframe ds_ordenado. Éste tiene a los vuelos ordenados y se eliminaron las filas con vuelos incompletos (es decir, vuelos donde no quedaron registrados o bien el despegue o bien el aterrizaje)
+```{r}
+ds_ordenado = ds_vuelos[order(ds_vuelos$VueloNum), ]
+ds_ordenado = ds_ordenado %>% 
+  filter( !is.na(VueloNum) )
+
+coordenadas_despegues = ds_ordenado %>% 
+  filter( Tipo.de.movimiento == "Despegue" ) %>%
+  select( x,y,VueloNum ) 
+
+coordenadas_aterrizajes = ds_ordenado %>% 
+  filter( Tipo.de.movimiento == "Aterrizaje" ) %>% 
+  select( x,y,VueloNum ) 
+
+distancia = distHaversine(coordenadas_despegues, coordenadas_aterrizajes)
+distancia = rep(distancia, each=2)
+ 
+#Agrego columna en metros.
+ds_ordenado$Distancia = distancia
+
+```
+
+```{r}
+horarios_despegues = ds_ordenado %>% 
+  filter( Tipo.de.movimiento == "Despegue" ) %>%
+  select( Tiempo ) 
+#horarios_despegues = ymd_hms(horarios_despegues$Tiempo)
+
+
+
+horarios_aterrizajes = ds_ordenado %>% 
+  filter( Tipo.de.movimiento == "Aterrizaje" ) %>%
+  select( Tiempo ) 
+#horarios_aterrizajes = ymd_hms(horarios_aterrizajes$Tiempo)
+
+Duracion <- as.numeric(difftime(strptime(horarios_aterrizajes[,1], "%Y-%m-%d %H:%M:%S"), strptime(horarios_despegues[,1], "%Y-%m-%d %H:%M:%S"))) #lo devuelve en minutos
+
+Duracion = rep(Duracion, each=2)
+
+
+ds_ordenado = cbind(ds_ordenado, Duracion)
+
+
+
+```
+
+
+
+```{r}
+#Analisis datos Leandro
+
+
+promedio_por_viaje = ds_ordenado %>% 
+  filter( Tipo.de.Movimiento == "Despegue" ) %>% 
+  select(Aeropuerto, Origen...Destino, Pasajeros) %>% 
+  group_by(Aeropuerto, Origen...Destino) %>% 
+  summarise(mean(Pasajeros))
+
+ds_ordenado$Tiempo = as.Date(ds_ordenado$Tiempo)
+
+pasajeros_por_dia = ds_ordenado %>% 
+  filter( Tipo.de.Movimiento == "Despegue" ) %>% 
+  select(Pasajeros, Tiempo) %>% 
+  group_by(Tiempo) %>% 
+  summarise(sum(Pasajeros))
+
+
+
+
+ds_ordenado = filter(ds_ordenado, Clase.de.Vuelo..todos.los.vuelos. == "Regular")
+
+
+aerolineas = unique(ds_ordenado$Aerolinea.Nombre)
+combinaciones_vuelos_y_aerolineas = unique( ds_ordenado[ ,c("Aeropuerto", "Origen...Destino")] ) %>% 
+  crossing(aerolineas)
+
+
+aaa = unique( ds_ordenado[ ,c("Aeropuerto", "Origen...Destino")] )
+aaa= 1126
+
+vuelos_reducido = ds_ordenado %>% 
+  filter( Tipo.de.Movimiento == "Despegue" ) %>% 
+  select( Aeropuerto, Origen...Destino, Aerolinea.Nombre, Pasajeros) %>% 
+  group_by(Aeropuerto, Origen...Destino, Aerolinea.Nombre) %>% 
+  summarise(sum(Pasajeros)+1)
+
+colnames(vuelos_reducido) = c("Aeropuerto", "Origen...Destino", "Aerolinea.Nombre", "sum(Pasajeros)")
+
+
+combinaciones_vuelos_y_aerolineas = combinaciones_vuelos_y_aerolineas %>% 
+  left_join(vuelos_reducido, by = c("Aeropuerto" = "Aeropuerto" ,"Origen...Destino" = "Origen...Destino" ,"aerolineas" = "Aerolinea.Nombre"))
+
+
+combinaciones_vuelos_y_aerolineas$`sum(Pasajeros)`[combinaciones_vuelos_y_aerolineas$`sum(Pasajeros)`>0] = 1
+combinaciones_vuelos_y_aerolineas$`sum(Pasajeros)`[is.na(combinaciones_vuelos_y_aerolineas$`sum(Pasajeros)`)] = 0
+
+combinaciones_vuelos_y_aerolineas = combinaciones_vuelos_y_aerolineas %>% 
+  group_by(aerolineas) %>% 
+  summarise(sum(`sum(Pasajeros)`))
+
+
+
+combinaciones_vuelos_y_aerolineas[ ,2] = combinaciones_vuelos_y_aerolineas[ ,2] / aaa
+
+
+
+  
+
+
+
+
+
+
+
+porcentaje_cubierto_por_aerolinea = ds_ordenado %>% 
+  filter( Tipo.de.Movimiento == "Despegue" ) %>% 
+  select( Aeropuerto, Origen...Destino, Aerolinea.Nombre) %>% 
+  count( Aeropuerto, Origen...Destino, Aerolinea.Nombre)
+
+  
+  "group_by(Aeropuerto, Origen...Destino, Aerolinea.Nombre) %>% 
+  summarise(mean(Pasajeros))"
+
+```
+

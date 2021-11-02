@@ -92,7 +92,7 @@ ds_vuelos = read.csv(archivo_vuelos, sep=',',encoding="UTF-16")
 ```
 
 ```{r}
- #order(ds_vuelos$VueloNum)
+ #orden = order(ds_vuelos$VueloNum)
  ds_ordenado = ds_vuelos[order(ds_vuelos$VueloNum),]
 
  despegues = ds_ordenado %>% 
@@ -101,14 +101,72 @@ ds_vuelos = read.csv(archivo_vuelos, sep=',',encoding="UTF-16")
    select(x, y)
  
  
- aterrizajes = ds_ordenado %>% 
+   aterrizajes = ds_ordenado %>% 
+     filter(Tipo.de.Movimiento == "Aterrizaje") %>% 
+     filter(!is.na(VueloNum)) %>% 
+     select(x, y)
+   
+ 
+ distancias = distHaversine(aterrizajes, despegues, r=6378137)
+ 
+ vuelos_dist = ds_ordenado %>% 
    filter(Tipo.de.Movimiento == "Aterrizaje") %>% 
-   filter(!is.na(VueloNum)) %>% 
-   select(x, y)
+   filter(!is.na(VueloNum))
  
- viajes = distHaversine(despegues, aterrizajes, r = 6378137)
+ vuelos_dist = cbind(vuelos_dist, distancias)
  
+ #nuevo <- cbind(aterrizajes, distancias)
+   #viajes = distHaversine(despegues, aterrizajes, r = 6378137)
  
+```
+```{r} 
+aterrizajes_tiempo = ds_ordenado %>% 
+  filter(Tipo.de.Movimiento == "Aterrizaje") %>% 
+  filter(!is.na(VueloNum)) %>% 
+  select(Tiempo)
+
+despegues_tiempo = ds_ordenado %>% 
+  filter(Tipo.de.Movimiento == "Despegue") %>% 
+  filter(VueloNum <= 43287) %>% 
+  select(Tiempo)
+
+tiempo <- as.numeric(difftime(strptime(aterrizajes_tiempo[,1], "%Y-%m-%d %H:%M:%S"), strptime(despegues_tiempo[,1], "%Y-%m-%d %H:%M:%S"))) #lo devuelve en minutos
+
+
+vuelos_dist = cbind(vuelos_dist, tiempo)
+
+```
+```{r}
+
+vuelos_dist = vuelos_dist %>% 
+  mutate(Vel_media = (distancias/1000)/tiempo)  #Vel Media en Km/min
+vuelos_dist
+```
  
+
+```{r}
+require(igraph)
+require(tidygraph)
+require(ggraph)
+```
+ 
+```{r}
+ds_vuelos = ds_vuelos[order(ds_vuelos$VueloNum),]
+
+ds_tamanio = ds_vuelos %>% mutate(Tamaño.Vuelo = ifelse(ds_vuelos$Pasajeros < 50, "Chico", "Grande"))
+
+barplot(table(ds_tamanio$Tamaño.Vuelo), las=2,cex.names=0.7)
+
+ds_tamanio = ds_tamanio %>% filter(cpr=="Buenos Aires")
+
+barplot(table(ds_tamanio$Tamaño.Vuelo), las=2,cex.names=0.7)
+```
+
+```{r}
+ds_vuelos = ds_vuelos %>% 
+  filter(Clase.de.Vuelo..todos.los.vuelos. == "Vuelo Privado con Matrícula Nacional") %>% 
+  filter(Tipo.de.Movimiento == "Aterrizaje")
+
+barplot(table(ds_vuelos$Origen...Destino), las=2,cex.names=0.7)
 ```
 
